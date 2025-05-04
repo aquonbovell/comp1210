@@ -1,6 +1,16 @@
-﻿using comp1210.Models;
+﻿using System.Text;
+using comp1210.Models;
 
 namespace comp1210;
+
+public enum Choice
+{
+	PRINT = 1,
+	UPDATE,
+	NEW,
+	DELETE,
+	END
+}
 
 class Program
 {
@@ -8,11 +18,15 @@ class Program
 	{
 		// Inhertiance();
 
-		FileIO();
+		// FileIO();
 
 		// Recursion();
 
 		// Sort();
+
+		// Arrays();
+
+		CreditProcessing();
 	}
 	public static void Inhertiance()
 	{
@@ -306,5 +320,312 @@ class Program
 
 		Console.WriteLine($"Smallest number: {smallest}");
 		Console.WriteLine($"Largest number: {largest}");
+	}
+
+	public static void CreditProcessing()
+	{
+		string filePath = Path.Combine(Directory.GetCurrentDirectory(), "Files", "credit.txt");
+
+		static void InData(string filePath)
+		{
+			Console.WriteLine("Processing file...");
+			using FileStream fs = new(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+			using BinaryWriter writer = new(fs);
+
+			Console.WriteLine("Enter account number (1 to 100, 0 to end input)");
+			Console.Write("? ");
+			int accountNumber = int.Parse(Console.ReadLine() ?? string.Empty);
+
+			while (accountNumber > 0 && accountNumber <= 100)
+			{
+				Console.WriteLine("Enter lastname, firstname and balance");
+				Console.Write("? ");
+				string lastName = Console.ReadLine() ?? string.Empty;
+				string firstName = Console.ReadLine() ?? string.Empty;
+				double balance = double.Parse(Console.ReadLine() ?? string.Empty);
+
+				// Create ClientData object
+				ClientData client = new(balance, lastName, firstName, accountNumber);
+
+				// Seek to the position in the file
+				long position = (client.AccountNumber - 1) * GetRecordSize();
+				fs.Seek(position, SeekOrigin.Begin);
+
+				// Write client data
+				WriteClientData(writer, client);
+
+				Console.WriteLine("Enter account number");
+				Console.Write("? ");
+				accountNumber = int.Parse(Console.ReadLine() ?? string.Empty);
+			}
+
+			Console.WriteLine("Processing complete.");
+		}
+
+		static void OutData(string filePath)
+		{
+			Console.WriteLine("Reading file...\n");
+
+			if (!File.Exists(filePath))
+			{
+				Console.WriteLine("File could not be opened.");
+				return;
+			}
+
+			using FileStream fs = new(filePath, FileMode.Open, FileAccess.Read);
+			using BinaryReader reader = new(fs);
+
+			// Output column headers
+			Console.WriteLine("{0,-10}{1,-16}{2,-11}{3,10}", "Account", "Last Name", "First Name", "Balance");
+
+			while (fs.Length - fs.Position >= GetRecordSize())
+
+			{
+				ClientData client = ReadClientData(reader);
+
+				if (client.AccountNumber != 0)
+				{
+					OutputLineToConsole(client);
+				}
+			}
+		}
+
+		static void Credit(string filePath)
+		{
+			// Create or overwrite the file with 100 blank ClientData records
+			using FileStream fs = new(filePath, FileMode.Create, FileAccess.Write);
+			using BinaryWriter writer = new(fs, Encoding.ASCII); // ASCII like C++
+
+			ClientData blankClient = new(); // All default/empty values
+
+			for (int i = 0; i < ClientData.RECORD_COUNT; i++)
+			{
+				WriteClientData(writer, blankClient);
+			}
+
+			Console.WriteLine("100 blank records written to credit.txt");
+		}
+
+		static void Transactions(string filePath)
+		{
+			if (!File.Exists(filePath))
+			{
+				Credit(filePath);
+			}
+
+			using FileStream fs = new(filePath, FileMode.Open, FileAccess.ReadWrite);
+			using BinaryReader reader = new(fs);
+			using BinaryWriter writer = new(fs);
+
+			Choice choice;
+			while ((choice = EnterChoice()) != Choice.END)
+			{
+				switch (choice)
+				{
+					case Choice.PRINT:
+						CreateTextFile(fs);
+						break;
+					case Choice.UPDATE:
+						UpdateRecord(fs);
+						break;
+					case Choice.NEW:
+						NewRecord(fs);
+						break;
+					case Choice.DELETE:
+						DeleteRecord(fs);
+						break;
+					default:
+						Console.WriteLine("Incorrect choice.");
+						break;
+				}
+			}
+		}
+
+		static Choice EnterChoice()
+		{
+			Console.WriteLine("\nEnter your choice\n" +
+					"1 - store a formatted text file of accounts\n" +
+					"    called \"print.txt\" for printing\n" +
+					"2 - update an account\n" +
+					"3 - add a new account\n" +
+					"4 - delete an account\n" +
+					"5 - end program\n? ");
+			return (Choice)int.Parse(Console.ReadLine() ?? "5");
+		}
+		static void CreateTextFile(FileStream fs)
+		{
+			fs.Seek(0, SeekOrigin.Begin);
+			using StreamWriter textFile = new("print.txt");
+
+			textFile.WriteLine("{0,-10}{1,-16}{2,-11}{3,10}", "Account", "Last Name", "First Name", "Balance");
+
+			using BinaryReader reader = new(fs, Encoding.Default, leaveOpen: true);
+
+			// Ensure that there is enough data left to read the full record before each read.
+			while (fs.Position + GetRecordSize() <= fs.Length)
+			{
+				ClientData client = ReadClientData(reader);
+				if (client.AccountNumber != 0)
+				{
+					OutputLine(textFile, client);
+				}
+			}
+		}
+
+
+		static void UpdateRecord(FileStream fs)
+		{
+			int accountNumber = GetAccount("Enter account to update");
+			long position = (accountNumber - 1) * GetRecordSize();
+
+			fs.Seek(position, SeekOrigin.Begin);
+			using BinaryReader reader = new(fs, Encoding.Default, leaveOpen: true);
+			ClientData client = ReadClientData(reader);
+
+			if (client.AccountNumber != 0)
+			{
+				OutputLine(Console.Out, client);
+				Console.Write("\nEnter charge (+) or payment (-): ");
+				double transaction = double.Parse(Console.ReadLine() ?? "0");
+
+				client.Balance += transaction;
+
+				fs.Seek(position, SeekOrigin.Begin);
+				using BinaryWriter writer = new(fs, Encoding.Default, leaveOpen: true);
+				WriteClientData(writer, client);
+
+				OutputLine(Console.Out, client);
+			}
+			else
+			{
+				Console.WriteLine($"Account #{accountNumber} has no information.");
+			}
+		}
+
+
+		static void NewRecord(FileStream fs)
+		{
+			int accountNumber = GetAccount("Enter new account number");
+			long position = (accountNumber - 1) * GetRecordSize();
+
+			fs.Seek(position, SeekOrigin.Begin);
+			using BinaryReader reader = new(fs, Encoding.Default, leaveOpen: true);
+			ClientData client = ReadClientData(reader);
+
+			if (client.AccountNumber == 0)
+			{
+				Console.Write("Enter lastname, firstname, balance\n? ");
+				string lastName = Console.ReadLine() ?? "";
+				string firstName = Console.ReadLine() ?? "";
+				double balance = double.Parse(Console.ReadLine() ?? "0");
+
+				ClientData newClient = new(balance, lastName, firstName, accountNumber);
+
+				fs.Seek(position, SeekOrigin.Begin);
+				using BinaryWriter writer = new(fs, Encoding.Default, leaveOpen: true);
+				WriteClientData(writer, newClient);
+			}
+			else
+			{
+				Console.WriteLine($"Account #{accountNumber} already contains information.");
+			}
+		}
+
+		static void DeleteRecord(FileStream fs)
+		{
+			int accountNumber = GetAccount("Enter account to delete");
+			long position = (accountNumber - 1) * GetRecordSize();
+
+			fs.Seek(position, SeekOrigin.Begin);
+			using BinaryReader reader = new(fs, Encoding.Default, leaveOpen: true);
+			ClientData client = ReadClientData(reader);
+
+			if (client.AccountNumber != 0)
+			{
+				fs.Seek(position, SeekOrigin.Begin);
+				using BinaryWriter writer = new(fs, Encoding.Default, leaveOpen: true);
+				WriteClientData(writer, new ClientData());
+
+				Console.WriteLine($"Account #{accountNumber} deleted.");
+			}
+			else
+			{
+				Console.WriteLine($"Account #{accountNumber} is empty.");
+			}
+		}
+
+		static int GetAccount(string prompt)
+		{
+			int number;
+			do
+			{
+				Console.Write($"{prompt} (1 - 100): ");
+			} while (!int.TryParse(Console.ReadLine(), out number) || number < 1 || number > 100);
+			return number;
+		}
+
+		static void WriteClientData(BinaryWriter writer, ClientData client)
+		{
+			writer.Write(client.AccountNumber);
+
+			writer.Write(EncodeFixedString(client.LastName, 15));
+			writer.Write(EncodeFixedString(client.FirstName, 10));
+
+			writer.Write(client.Balance);
+		}
+
+
+		static byte[] EncodeFixedString(string input, int length)
+		{
+			string fixedStr = input.PadRight(length).Substring(0, length);
+			return System.Text.Encoding.Unicode.GetBytes(fixedStr); // UTF-16LE: 2 bytes per char
+		}
+
+		static int GetRecordSize()
+		{
+			// int (4) + 15 * 2 + 10 * 2 + double (8)
+			return sizeof(int) + (15 * 2) + (10 * 2) + sizeof(double);
+		}
+
+
+		static ClientData ReadClientData(BinaryReader reader)
+		{
+			int accountNumber = reader.ReadInt32();
+
+			byte[] lastNameBytes = reader.ReadBytes(15 * 2);
+			byte[] firstNameBytes = reader.ReadBytes(10 * 2);
+
+			string lastName = Encoding.Unicode.GetString(lastNameBytes).Trim();
+			string firstName = Encoding.Unicode.GetString(firstNameBytes).Trim();
+
+			double balance = reader.ReadDouble();
+
+			return new ClientData(balance, lastName, firstName, accountNumber);
+		}
+
+
+		static void OutputLineToConsole(ClientData record)
+		{
+			Console.WriteLine("{0,-10}{1,-16}{2,-11}{3,10:F2}",
+					record.AccountNumber,
+					record.LastName,
+					record.FirstName,
+					record.Balance);
+		}
+
+		static void OutputLine(TextWriter output, ClientData client)
+		{
+			output.WriteLine("{0,-10}{1,-16}{2,-11}{3,10:F2}",
+					client.AccountNumber,
+					client.LastName,
+					client.FirstName,
+					client.Balance);
+		}
+
+		// Credit card processing logic goes here
+		// InData(filePath);
+		// OutData(filePath);
+		// Credit(filePath);
+		Transactions(filePath);
 	}
 }
