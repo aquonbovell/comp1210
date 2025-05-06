@@ -4,7 +4,7 @@ namespace comp1210.Models;
 public class ClientData
 {
   // Constants
-  public static int RECORD_COUNT = 15;
+  public static int RECORD_COUNT = 100;
   // Private fields
   private int accountNumber;
   private string lastName = string.Empty;
